@@ -17,6 +17,20 @@
         "start"
       ],
       "type": "stdio"
-    }
+    },
+    "serena": {
+    "type": "stdio",
+    "command": "uvx",
+    "args": [
+      "--from",
+      "git+https://github.com/oraios/serena",
+      "serena-mcp-server",
+      "--context",
+      "ide-assistant",
+      "--project",
+      "/home/devcontainers/bench/claude-bench"
+    ],
+    "env": {}
+  }
   }
 }

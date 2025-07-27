@@ -5,14 +5,14 @@ Provides context-aware suggestions based on stored memories
 """
 import json
 import os
-import sys
 import re
+import sys
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
 
 
 # Import memory manager with robust error handling
-def import_memory_manager():
+def import_memory_manager() -> Any:
     """Import memory manager with fallback handling"""
     try:
         # Try using __file__ first
@@ -45,7 +45,7 @@ def import_memory_manager():
 
     except (ImportError, FileNotFoundError, AttributeError):
         # Return stub function for graceful degradation
-        def get_memory_manager(*args, **kwargs):
+        def get_memory_manager(*args: Any, **kwargs: Any) -> Any | None:
             return None
 
         return get_memory_manager
@@ -58,7 +58,7 @@ get_memory_manager = import_memory_manager()
 class ContextAnalyzer:
     """Analyzes user prompts to determine relevant memories"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.intent_patterns = {
             "error_fixing": [
                 r"(?i)error",
@@ -95,9 +95,9 @@ class ContextAnalyzer:
             ],
         }
 
-    def analyze_prompt(self, prompt: str) -> Dict[str, Any]:
+    def analyze_prompt(self, prompt: str) -> dict[str, Any]:
         """Analyze user prompt to determine intent and context"""
-        analysis = {"intents": [], "keywords": [], "memory_types": []}
+        analysis: dict[str, Any] = {"intents": [], "keywords": [], "memory_types": []}
 
         # Detect intents
         for intent, patterns in self.intent_patterns.items():
@@ -168,7 +168,7 @@ class ContextAnalyzer:
         return analysis
 
 
-def format_memories_as_tips(memories: List[Dict[str, Any]], max_tips: int = 5) -> str:
+def format_memories_as_tips(memories: list[dict[str, Any]], max_tips: int = 5) -> str:
     """Format memories as helpful tips for the user"""
     if not memories:
         return ""
@@ -176,7 +176,7 @@ def format_memories_as_tips(memories: List[Dict[str, Any]], max_tips: int = 5) -
     tips = []
     tips.append("\n🧠 Relevant memories from this project:")
 
-    for i, memory in enumerate(memories[:max_tips]):
+    for _i, memory in enumerate(memories[:max_tips]):
         memory_type = memory["metadata"].get("memory_type", "general")
         similarity = memory.get("similarity", 0)
 
@@ -211,7 +211,7 @@ def format_memories_as_tips(memories: List[Dict[str, Any]], max_tips: int = 5) -
     return "\n".join(tips)
 
 
-def main():
+def main() -> None:
     """Main hook entry point"""
     # Initialize input_data with default value to prevent UnboundLocalError
     input_data = {}
@@ -235,15 +235,21 @@ def main():
         # Load configuration
         config_path = Path(project_path) / ".claude/memory_system/config.json"
         if not config_path.exists():
+            # No memory system config, output just a space
+            print(" ")
             sys.exit(0)
 
         with open(config_path) as f:
             config = json.load(f)
 
         if not config.get("memory_system", {}).get("enabled", False):
+            # Memory system disabled, output just a space
+            print(" ")
             sys.exit(0)
 
         if not config["memory_system"]["hooks"]["auto_retrieve"]["enabled"]:
+            # Auto retrieve disabled, output just a space
+            print(" ")
             sys.exit(0)
 
         # Initialize memory manager
@@ -251,7 +257,7 @@ def main():
 
         # Only proceed if memory manager is available
         if memory_manager is None:
-            print(input_data.get("prompt", ""))
+            print(" ")
             sys.exit(0)
 
         # Analyze prompt
@@ -296,18 +302,17 @@ def main():
                 ],
             )
 
-            # Add existing prompt
-            output = f"{prompt}{tips}"
-            print(output)
+            # Output just the memories tips
+            print(tips)
         else:
-            # No memories found, output original prompt
-            print(prompt)
+            # If no memories found, output just a space
+            print(" ")
 
         sys.exit(0)
 
     except Exception:
-        # On error, just output the original prompt
-        print(input_data.get("prompt", ""))
+        # On error, output just a space
+        print(" ")
         sys.exit(0)
 
 

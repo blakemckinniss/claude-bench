@@ -5,10 +5,10 @@ Detects complex patterns and workflows that could be optimized
 """
 
 import re
-from typing import List, Dict, Any, Tuple, Optional
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 
 class WorkflowType(Enum):
@@ -28,7 +28,7 @@ class WorkflowPattern:
     """Represents a detected workflow pattern"""
 
     type: WorkflowType
-    steps: List[Tuple[str, Dict[str, Any]]]
+    steps: list[tuple[str, dict[str, Any], float]]
     timestamp: float
     optimization_suggestion: str
 
@@ -38,7 +38,7 @@ class BatchableOperation:
     """Represents operations that could be batched"""
 
     tool_name: str
-    operations: List[Dict[str, Any]]
+    operations: list[dict[str, Any]]
     suggestion: str
     estimated_speedup: float  # Multiplier (e.g., 5.0 = 5x faster)
 
@@ -46,13 +46,13 @@ class BatchableOperation:
 class PatternDetector:
     """Detects complex patterns in tool usage"""
 
-    def __init__(self):
-        self.operation_buffer = []
+    def __init__(self) -> None:
+        self.operation_buffer: list[tuple[str, dict[str, Any], float]] = []
         self.max_buffer_size = 50
 
     def add_operation(
-        self, tool_name: str, tool_input: Dict[str, Any], timestamp: float
-    ):
+        self, tool_name: str, tool_input: dict[str, Any], timestamp: float
+    ) -> None:
         """Add operation to buffer for pattern detection"""
         self.operation_buffer.append((tool_name, tool_input, timestamp))
 
@@ -60,7 +60,7 @@ class PatternDetector:
         if len(self.operation_buffer) > self.max_buffer_size:
             self.operation_buffer.pop(0)
 
-    def detect_workflows(self) -> List[WorkflowPattern]:
+    def detect_workflows(self) -> list[WorkflowPattern]:
         """Detect workflow patterns in recent operations"""
         workflows = []
 
@@ -86,7 +86,7 @@ class PatternDetector:
 
         return workflows
 
-    def detect_batchable_operations(self) -> List[BatchableOperation]:
+    def detect_batchable_operations(self) -> list[BatchableOperation]:
         """Detect operations that could be batched"""
         batchable = []
 
@@ -103,7 +103,10 @@ class PatternDetector:
                 BatchableOperation(
                     tool_name="Read",
                     operations=[op[0] for op in tool_groups["Read"]],
-                    suggestion=f"Batch read {len(files)} files with read_multiple_files: {files[:3]}...",
+                    suggestion=(
+                        f"Batch read {len(files)} files with "
+                        f"read_multiple_files: {files[:3]}..."
+                    ),
                     estimated_speedup=len(files)
                     * 0.8,  # Not quite linear due to overhead
                 )
@@ -136,7 +139,7 @@ class PatternDetector:
 
         return batchable
 
-    def _detect_read_modify_write(self) -> Optional[WorkflowPattern]:
+    def _detect_read_modify_write(self) -> WorkflowPattern | None:
         """Detect read → modify → write pattern"""
         if len(self.operation_buffer) < 3:
             return None
@@ -159,13 +162,15 @@ class PatternDetector:
                     steps=[op1, op2, op3],
                     timestamp=op3[2],
                     optimization_suggestion=(
-                        f"Use Edit or MultiEdit instead of Read→Modify→Write for {op1[1].get('file_path')}. "
-                        "For code files, use Serena's replace_symbol_body or replace_regex."
+                        f"Use Edit or MultiEdit instead of Read→Modify→Write "
+                        f"for {op1[1].get('file_path')}. "
+                        "For code files, use Serena's replace_symbol_body or "
+                        "replace_regex."
                     ),
                 )
         return None
 
-    def _detect_search_read_edit(self) -> Optional[WorkflowPattern]:
+    def _detect_search_read_edit(self) -> WorkflowPattern | None:
         """Detect search → read → edit pattern"""
         # Look for search followed by reads
         search_indices = [
@@ -185,13 +190,14 @@ class PatternDetector:
                         steps=following_ops[:3],
                         timestamp=following_ops[-1][2],
                         optimization_suggestion=(
-                            "Consider using Task(subagent_type='general-purpose') for complex searches. "
-                            "Or use Serena's find_symbol with include_body=True to avoid separate reads."
+                            "Consider using Task(subagent_type='general-purpose') "
+                            "for complex searches. Or use Serena's find_symbol with "
+                            "include_body=True to avoid separate reads."
                         ),
                     )
         return None
 
-    def _detect_git_workflow(self) -> Optional[WorkflowPattern]:
+    def _detect_git_workflow(self) -> WorkflowPattern | None:
         """Detect git status → diff → commit pattern"""
         git_ops = [
             (i, op)
@@ -208,13 +214,14 @@ class PatternDetector:
                         steps=[op[1] for op in git_ops],
                         timestamp=git_ops[-1][1][2],
                         optimization_suggestion=(
-                            "Run all git commands in parallel! Send git status, git diff, "
-                            "and git log in a single message with multiple tool calls."
+                            "Run all git commands in parallel! Send git status, "
+                            "git diff, and git log in a single message with multiple "
+                            "tool calls."
                         ),
                     )
         return None
 
-    def _detect_debug_workflow(self) -> Optional[WorkflowPattern]:
+    def _detect_debug_workflow(self) -> WorkflowPattern | None:
         """Detect debugging workflow pattern"""
         # Look for error/log reading followed by code searches
         log_reads = [
@@ -238,8 +245,9 @@ class PatternDetector:
                     steps=following[:3],
                     timestamp=following[-1][2],
                     optimization_suggestion=(
-                        "Consider using Task(subagent_type='debugger') for complex debugging. "
-                        "The debugger agent can analyze logs and trace issues more efficiently."
+                        "Consider using Task(subagent_type='debugger') for "
+                        "complex debugging. The debugger agent can analyze logs "
+                        "and trace issues more efficiently."
                     ),
                 )
         return None
@@ -250,10 +258,10 @@ class SmartSuggestions:
 
     @staticmethod
     def suggest_parallel_operations(
-        operations: List[Tuple[str, Dict[str, Any]]],
+        operations: list[tuple[str, dict[str, Any]]],
     ) -> str:
         """Suggest how to parallelize operations"""
-        tool_counts = defaultdict(int)
+        tool_counts: dict[str, int] = defaultdict(int)
         for op in operations:
             tool_counts[op[0]] += 1
 
@@ -276,7 +284,7 @@ class SmartSuggestions:
             return "🚀 These operations can run in parallel - send them in one message!"
 
     @staticmethod
-    def suggest_task_agent(context: str) -> Optional[Tuple[str, str]]:
+    def suggest_task_agent(context: str) -> tuple[str, str] | None:
         """Suggest appropriate task agent based on context"""
         context_lower = context.lower()
 
@@ -326,12 +334,15 @@ class SmartSuggestions:
         return None
 
     @staticmethod
-    def estimate_time_saved(batchable: List[BatchableOperation]) -> str:
+    def estimate_time_saved(batchable: list[BatchableOperation]) -> str:
         """Estimate time saved by batching operations"""
         total_speedup = sum(op.estimated_speedup for op in batchable)
 
         if total_speedup > 10:
-            return f"⚡ Potential {total_speedup:.1f}x speedup by batching these operations!"
+            return (
+                f"⚡ Potential {total_speedup:.1f}x speedup by batching "
+                "these operations!"
+            )
         elif total_speedup > 5:
             return (
                 f"🚀 Save significant time: {total_speedup:.1f}x faster with batching!"

@@ -5,9 +5,9 @@ Tracks execution times and provides performance insights
 """
 
 import json
-import sys
 import os
-from typing import Dict, Any, List
+import sys
+from typing import Any, Dict, List
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -187,7 +187,7 @@ def main():
 
             # Use JSON output for better control
             output = {
-                "decision": "allow",  # Don't block, just inform
+                "decision": "approve",  # Don't block, just inform
                 "feedback": feedback,
             }
             print(json.dumps(output))

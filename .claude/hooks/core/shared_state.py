@@ -4,13 +4,13 @@ Shared State Manager for Claude Code Hooks
 Provides inter-hook communication and state persistence
 """
 
+import fcntl
 import json
 import os
 import time
-import fcntl
-from typing import Dict, Any, List, Optional
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 
 class HookStateManager:
@@ -19,19 +19,19 @@ class HookStateManager:
     STATE_FILE = "/tmp/claude_hook_shared_state.json"
     LOCK_FILE = "/tmp/claude_hook_state.lock"
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.state_file = Path(self.STATE_FILE)
         self.lock_file = Path(self.LOCK_FILE)
         self._ensure_files_exist()
 
-    def _ensure_files_exist(self):
+    def _ensure_files_exist(self) -> None:
         """Ensure state files exist"""
         if not self.state_file.exists():
             self.state_file.write_text("{}")
         if not self.lock_file.exists():
             self.lock_file.touch()
 
-    def _acquire_lock(self, timeout: float = 1.0) -> Optional[int]:
+    def _acquire_lock(self, timeout: float = 1.0) -> int | None:
         """Acquire file lock for thread-safe operations"""
         lock_fd = os.open(str(self.lock_file), os.O_RDWR)
         start_time = time.time()
@@ -46,26 +46,27 @@ class HookStateManager:
         os.close(lock_fd)
         return None
 
-    def _release_lock(self, lock_fd: int):
+    def _release_lock(self, lock_fd: int) -> None:
         """Release file lock"""
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         os.close(lock_fd)
 
-    def read_state(self) -> Dict[str, Any]:
+    def read_state(self) -> dict[str, Any]:
         """Read current state with locking"""
         lock_fd = self._acquire_lock()
         if lock_fd is None:
             return {}
 
         try:
-            with open(self.state_file, "r") as f:
-                return json.load(f)
+            with open(self.state_file) as f:
+                state: dict[str, Any] = json.load(f)
+                return state
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             return {}
         finally:
             self._release_lock(lock_fd)
 
-    def write_state(self, state: Dict[str, Any]):
+    def write_state(self, state: dict[str, Any]) -> None:
         """Write state with locking"""
         lock_fd = self._acquire_lock()
         if lock_fd is None:
@@ -77,7 +78,7 @@ class HookStateManager:
         finally:
             self._release_lock(lock_fd)
 
-    def update_state(self, updates: Dict[str, Any]):
+    def update_state(self, updates: dict[str, Any]) -> None:
         """Update specific fields in state"""
         lock_fd = self._acquire_lock()
         if lock_fd is None:
@@ -86,7 +87,7 @@ class HookStateManager:
         try:
             # Read current state
             try:
-                with open(self.state_file, "r") as f:
+                with open(self.state_file) as f:
                     state = json.load(f)
             except (FileNotFoundError, json.JSONDecodeError, OSError):
                 state = {}
@@ -105,15 +106,15 @@ class HookStateManager:
 class SessionTracker:
     """Track session-specific patterns and metrics"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.state_manager = HookStateManager()
 
     def add_tool_execution(
         self,
         tool_name: str,
-        tool_input: Dict[str, Any],
-        execution_time: Optional[float] = None,
-    ):
+        tool_input: dict[str, Any],
+        execution_time: float | None = None,
+    ) -> None:
         """Track tool execution"""
         state = self.state_manager.read_state()
 
@@ -159,8 +160,8 @@ class SessionTracker:
         self.state_manager.write_state(state)
 
     def get_recent_operations(
-        self, tool_name: Optional[str] = None, seconds: int = 30
-    ) -> List[Dict[str, Any]]:
+        self, tool_name: str | None = None, seconds: int = 30
+    ) -> list[dict[str, Any]]:
         """Get recent operations within time window"""
         state = self.state_manager.read_state()
         executions = state.get("tool_executions", [])
@@ -175,7 +176,7 @@ class SessionTracker:
 
         return recent
 
-    def detect_patterns(self) -> Dict[str, List[str]]:
+    def detect_patterns(self) -> dict[str, list[str]]:
         """Detect common patterns that could be optimized"""
         patterns = defaultdict(list)
 
@@ -200,7 +201,8 @@ class SessionTracker:
         recent_searches = self.get_recent_operations("search_for_pattern", seconds=60)
         if len(recent_searches) >= 3:
             patterns["repeated_searches"].append(
-                "Multiple searches detected. Consider using Task with general-purpose agent."
+                "Multiple searches detected. Consider using Task with "
+                "general-purpose agent."
             )
 
         return dict(patterns)
@@ -209,10 +211,10 @@ class SessionTracker:
 class PerformanceMonitor:
     """Monitor and track performance metrics"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.state_manager = HookStateManager()
 
-    def record_validation_time(self, hook_name: str, duration: float):
+    def record_validation_time(self, hook_name: str, duration: float) -> None:
         """Record hook validation time"""
         state = self.state_manager.read_state()
 
@@ -235,7 +237,7 @@ class PerformanceMonitor:
 
         self.state_manager.write_state(state)
 
-    def get_slow_operations(self, threshold_ms: float = 100) -> List[Dict[str, Any]]:
+    def get_slow_operations(self, threshold_ms: float = 100) -> list[dict[str, Any]]:
         """Get operations that exceeded time threshold"""
         state = self.state_manager.read_state()
         slow_ops = []
@@ -254,25 +256,25 @@ class PerformanceMonitor:
 
 
 # Convenience functions for hooks
-def track_tool_use(tool_name: str, tool_input: Dict[str, Any]):
+def track_tool_use(tool_name: str, tool_input: dict[str, Any]) -> None:
     """Quick function to track tool usage"""
     tracker = SessionTracker()
     tracker.add_tool_execution(tool_name, tool_input)
 
 
-def get_optimization_suggestions() -> List[str]:
+def get_optimization_suggestions() -> list[str]:
     """Get current optimization suggestions based on patterns"""
     tracker = SessionTracker()
     patterns = tracker.detect_patterns()
 
     suggestions = []
-    for pattern_type, pattern_messages in patterns.items():
+    for _, pattern_messages in patterns.items():
         suggestions.extend(pattern_messages)
 
     return suggestions
 
 
-def cleanup_old_state(max_age_seconds: int = 3600):
+def cleanup_old_state(max_age_seconds: int = 3600) -> None:
     """Clean up old state data"""
     state_manager = HookStateManager()
     state = state_manager.read_state()

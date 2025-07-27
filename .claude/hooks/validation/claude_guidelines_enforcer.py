@@ -1,345 +1,237 @@
 #!/usr/bin/env python3
 """
-Claude Code Hook: Enforce CLAUDE.md guidelines (Optimized Version)
-This hook validates tool usage against performance optimization guidelines.
-Performance improvements:
-- Pre-compiled regex patterns
-- Early exit optimizations
-- Caching for repeated validations
-- Batch detection logic
+Claude Guidelines Enforcer Hook
+Smartly refactored version with balanced functionality for reasonable enforcement
 """
 
 import json
-import re
 import sys
+import re
 import os
-from typing import Dict, List, Tuple, Any
+from typing import Dict, Any, List, Optional, Set, Tuple
 from functools import lru_cache
-from collections import defaultdict
-import time
+from datetime import datetime
 
 
-# Pre-compile all regex patterns for better performance
 class CompiledPatterns:
-    """Pre-compiled regex patterns to avoid compilation overhead"""
-
-    # Bash command patterns
-    GREP_RECURSIVE = re.compile(r"\bgrep\s+-r\b")
-    GREP_STANDALONE = re.compile(r"\bgrep\b(?!.*\|)")
-    FIND_NAME = re.compile(r"\bfind\s+.*-name\b")
-    FIND_TYPE_F = re.compile(r"\bfind\s+.*-type\s+f\b")
-    CAT_CODE_FILES = re.compile(r"\bcat\s+\S+\.(?:py|js|ts|java|cpp|go|rs)\b")
-    JSON_CHAIN = re.compile(r"cat\s+\S+\.json\s*\|\s*(?:grep|sed|awk)")
-    JSON_PARSE = re.compile(r"(?:sed|awk).*\.json")
-
-    # Tool usage patterns
-    CODE_FILE_PATTERN = re.compile(r"\.(?:py|js|ts|java|cpp|go|rs)$")
-
-    # Complex task patterns
-    SEARCH_ALL = re.compile(r"(?i)(search|find|locate)\s+(all|every|throughout)")
-    CODE_REVIEW = re.compile(r"(?i)(review|audit|analyze)\s+.*code")
-    DEBUG_FIX = re.compile(r"(?i)(debug|fix|troubleshoot)\s+.*error")
-    OPTIMIZE_PERF = re.compile(r"(?i)(optimize|improve)\s+.*performance")
-    REFACTOR = re.compile(r"(?i)(refactor|modernize|migrate)")
-
-    # Batch operation patterns
-    SEQUENTIAL_READS = re.compile(
-        r"(?i)(read|check|view|open)\s+(multiple|several|all)"
-    )
-    GIT_CHAIN = re.compile(r"&&.*git\s+(status|diff|log)")
+    """Pre-compiled regex patterns for performance"""
+    
+    def __init__(self) -> None:
+        # Bash command patterns
+        self.grep_pattern = re.compile(r'\b(grep|egrep|fgrep)\s+(?!-[Vvh])', re.IGNORECASE)
+        self.find_pattern = re.compile(r'\bfind\s+[^\s]+\s+-name', re.IGNORECASE)
+        self.cat_pattern = re.compile(r'\bcat\s+[^\s]+\s*\|', re.IGNORECASE)
+        self.json_parse_pattern = re.compile(r'(sed|awk|grep).*[\"\'].*:.*[\"\'].*json', re.IGNORECASE)
+        
+        # Sequential operation patterns
+        self.sequential_git_pattern = re.compile(r'(git\s+(status|diff|log))', re.IGNORECASE)
+        self.sequential_file_pattern = re.compile(r'(Read|read_file|get_file_contents)', re.IGNORECASE)
+        
+        # Complex task patterns
+        self.security_pattern = re.compile(r'(security|vulnerability|audit|OWASP|penetration|exploit)', re.IGNORECASE)
+        self.performance_pattern = re.compile(r'(performance|optimize|bottleneck|profil|slow|latency)', re.IGNORECASE)
+        self.debug_pattern = re.compile(r'(debug|error|exception|stack\s*trace|bug|crash)', re.IGNORECASE)
+        self.review_pattern = re.compile(r'(review|code\s*quality|best\s*practice|refactor)', re.IGNORECASE)
 
 
-# Optimized rule sets using pre-compiled patterns
-BASH_RULES_OPTIMIZED = [
-    (
-        CompiledPatterns.GREP_RECURSIVE,
-        "Use 'rg' (ripgrep) instead of 'grep -r' for recursive search - it's 10-100x faster",
-    ),
-    (
-        CompiledPatterns.GREP_STANDALONE,
-        "Use 'rg' (ripgrep) instead of 'grep' for better performance. If you need grep in a pipeline, that's OK.",
-    ),
-    (
-        CompiledPatterns.FIND_NAME,
-        "Use 'fd' instead of 'find -name' for faster file discovery",
-    ),
-    (
-        CompiledPatterns.FIND_TYPE_F,
-        "Use 'fd -t f' instead of 'find -type f' for faster file discovery",
-    ),
-    (
-        CompiledPatterns.CAT_CODE_FILES,
-        "Use 'bat' instead of 'cat' for syntax-highlighted code viewing",
-    ),
-    (
-        CompiledPatterns.JSON_CHAIN,
-        "Use 'jq' for JSON processing instead of sed/awk/grep chains",
-    ),
-    (
-        CompiledPatterns.JSON_PARSE,
-        "Use 'jq' for JSON processing - it's cleaner and more reliable",
-    ),
-]
-
-
-# Session state for tracking patterns
 class SessionState:
-    """Track session state for better pattern detection"""
+    """Track session state for batch detection"""
+    
+    def __init__(self) -> None:
+        self.tool_sequence: List[str] = []
+        self.file_operations: List[str] = []
+        self.git_operations: List[str] = []
+        self.last_operation_time: Optional[datetime] = None
+        self.complex_task_hints: Set[str] = set()
+        
+    def add_operation(self, tool_name: str, tool_input: Dict[str, Any]) -> None:
+        """Track operation for pattern detection"""
+        self.tool_sequence.append(tool_name)
+        if len(self.tool_sequence) > 10:
+            self.tool_sequence.pop(0)
+            
+        # Track specific operation types
+        if tool_name in ["Read", "mcp__filesystem__read_file"]:
+            file_path = tool_input.get("file_path", tool_input.get("path", ""))
+            self.file_operations.append(file_path)
+            
+        elif tool_name == "Bash":
+            command = tool_input.get("command", "")
+            if "git" in command:
+                self.git_operations.append(command)
+                
+        self.last_operation_time = datetime.now()
+        
+    def detect_batch_opportunity(self) -> Optional[str]:
+        """Detect if recent operations could be batched"""
+        # Check for multiple file reads
+        if len(self.file_operations) >= 3:
+            recent_files = self.file_operations[-3:]
+            self.file_operations = []  # Reset
+            return f"Multiple file reads detected: {recent_files}. Consider using read_multiple_files for batch reading."
+            
+        # Check for sequential git operations
+        if len(self.git_operations) >= 2:
+            recent_git = self.git_operations[-2:]
+            self.git_operations = []  # Reset
+            return f"Sequential git operations detected. Consider running in parallel: {recent_git}"
+            
+        return None
 
-    def __init__(self):
-        self.recent_tools: List[Tuple[str, Dict[str, Any], float]] = []
-        self.file_access_count = defaultdict(int)
-        self.similar_operations = defaultdict(list)
-        self.last_git_command_time = 0
 
-    def add_tool_use(self, tool_name: str, tool_input: Dict[str, Any]):
-        """Track tool usage for pattern detection"""
-        timestamp = time.time()
-        self.recent_tools.append((tool_name, tool_input, timestamp))
-
-        # Keep only last 20 operations
-        if len(self.recent_tools) > 20:
-            self.recent_tools.pop(0)
-
-        # Track file access
-        if tool_name == "Read" and "file_path" in tool_input:
-            self.file_access_count[tool_input["file_path"]] += 1
-
-    def detect_batch_opportunities(
-        self, tool_name: str, tool_input: Dict[str, Any]
-    ) -> List[str]:
-        """Detect missed batching opportunities"""
-        suggestions = []
-        current_time = time.time()
-
-        # Check for multiple Read operations that could be batched
-        if tool_name == "Read":
-            recent_reads = [
-                (t[1].get("file_path"), t[2])
-                for t in self.recent_tools[-5:]
-                if t[0] == "Read" and current_time - t[2] < 30
-            ]
-            if len(recent_reads) >= 2:
-                suggestions.append(
-                    f"Consider using read_multiple_files - you've read {len(recent_reads)} files recently. "
-                    f"Batch reading is much faster!"
-                )
-
-        # Check for sequential git commands
-        if tool_name == "Bash" and "git" in tool_input.get("command", ""):
-            if current_time - self.last_git_command_time < 5:
-                suggestions.append(
-                    "Run git commands in parallel! Send multiple Bash calls in one message "
-                    "instead of waiting for each result."
-                )
-            self.last_git_command_time = current_time
-
-        # Check for repeated find_symbol calls
-        recent_symbols = [
-            t
-            for t in self.recent_tools[-5:]
-            if t[0] == "find_symbol" and current_time - t[2] < 30
+class GuidelinesEnforcer:
+    """Main enforcer with balanced functionality"""
+    
+    def __init__(self) -> None:
+        self.patterns = CompiledPatterns()
+        self.session_state = SessionState()
+        self.config = self._load_config()
+        
+    def _load_config(self) -> Dict[str, Any]:
+        """Load configuration with defaults"""
+        return {
+            "enforce_modern_tools": True,
+            "suggest_batching": True,
+            "detect_complex_tasks": True,
+            "block_dangerous_operations": True,
+            "suggest_subagents": True
+        }
+        
+    @lru_cache(maxsize=100)
+    def check_bash_command(self, command: str) -> Tuple[bool, List[str]]:
+        """Check bash command for guideline violations"""
+        issues: List[str] = []
+        suggestions: List[str] = []
+        
+        # Check for grep usage
+        if self.patterns.grep_pattern.search(command):
+            suggestions.append("🚀 Use 'rg' (ripgrep) instead of grep - it's 10-100x faster!")
+            
+        # Check for find usage
+        if self.patterns.find_pattern.search(command):
+            suggestions.append("🚀 Use 'fd' instead of find - it's simpler and faster!")
+            
+        # Check for inefficient cat usage
+        if self.patterns.cat_pattern.search(command):
+            suggestions.append("🚀 Avoid 'cat file | grep' - use 'rg pattern file' directly!")
+            
+        # Check for JSON parsing with sed/awk
+        if self.patterns.json_parse_pattern.search(command):
+            issues.append("❌ Never parse JSON with sed/awk/grep! Use 'jq' instead.")
+            
+        # Dangerous operations check
+        if self._is_dangerous_command(command):
+            issues.append("🛑 DANGEROUS OPERATION DETECTED! This command could harm the system.")
+            
+        return (len(issues) > 0, suggestions + issues)
+        
+    def _is_dangerous_command(self, command: str) -> bool:
+        """Check if command is potentially dangerous"""
+        dangerous_patterns = [
+            r'rm\s+-rf\s+/',  # rm -rf /
+            r':()\s*{\s*:\|:&\s*}',  # Fork bomb
+            r'dd\s+if=/dev/(zero|random)\s+of=/',  # Dangerous dd
+            r'chmod\s+-R\s+777\s+/',  # Dangerous permissions
         ]
-        if len(recent_symbols) >= 2:
-            suggestions.append(
-                "Batch find_symbol calls! Send multiple symbol searches in one message "
-                "for parallel execution."
-            )
-
-        return suggestions
-
-
-# Global session state (would be better with proper state management)
-session_state = SessionState()
-
-
-@lru_cache(maxsize=128)
-def validate_bash_command_cached(command: str) -> Tuple[bool, List[str]]:
-    """Cached validation of bash commands"""
-    issues = []
-
-    # Skip if using explicit path to tool
-    if command.startswith(("/usr/bin/grep", "/bin/grep")):
-        return True, issues
-
-    # Check each pattern - early exit on first match for blocking rules
-    for pattern, message in BASH_RULES_OPTIMIZED:
-        if pattern.search(command):
-            issues.append(message)
-            # For critical issues, return immediately
-            if "grep" in message or "jq" in message:
-                return False, issues
-
-    # Check for sequential operations
-    if CompiledPatterns.GIT_CHAIN.search(command):
-        issues.append(
-            "Run git commands in parallel using multiple Bash tool calls instead of chaining with &&"
-        )
-
-    return len(issues) == 0, issues
-
-
-def check_tool_usage_optimized(
-    tool_name: str, tool_input: Dict[str, Any]
-) -> Tuple[bool, List[str]]:
-    """Optimized tool usage checking with early exits"""
-
-    # Fast path for blocked tools
-    if tool_name in ("WebSearch", "WebFetch"):
-        if tool_name == "WebSearch":
-            return False, [
-                "WebSearch is BLOCKED. Use mcp__tavily-remote__tavily_search instead"
-            ]
-        else:
-            return False, [
-                "WebFetch is BLOCKED. Use mcp__tavily-remote__tavily_extract instead"
-            ]
-
-    reminders = []
-
-    # Check Read tool usage for code files
-    if tool_name == "Read" and "file_path" in tool_input:
-        if CompiledPatterns.CODE_FILE_PATTERN.search(tool_input["file_path"]):
-            reminders.append(
-                "Consider using Serena's find_symbol or get_symbols_overview for code files instead of Read"
-            )
-
-    # Detect batch opportunities
-    batch_suggestions = session_state.detect_batch_opportunities(tool_name, tool_input)
-    reminders.extend(batch_suggestions)
-
-    return len(reminders) == 0, reminders
-
-
-def check_complex_tasks_optimized(tool_input: Dict[str, Any]) -> List[str]:
-    """Optimized complex task detection"""
-    suggestions = []
-
-    # Combine text fields for single pass checking
-    text_content = " ".join(
-        filter(
-            None,
-            [
-                tool_input.get("command", ""),
-                tool_input.get("description", ""),
-                tool_input.get("prompt", ""),
-            ],
-        )
-    )
-
-    if not text_content:
-        return suggestions
-
-    # Check patterns with early exit
-    pattern_checks = [
-        (
-            CompiledPatterns.SEARCH_ALL,
-            "Consider using Task with general-purpose agent for extensive searches",
-        ),
-        (
-            CompiledPatterns.CODE_REVIEW,
-            "Consider using Task with code-reviewer or security-auditor agent",
-        ),
-        (CompiledPatterns.DEBUG_FIX, "Consider using Task with debugger agent"),
-        (
-            CompiledPatterns.OPTIMIZE_PERF,
-            "Consider using Task with performance-engineer agent",
-        ),
-        (CompiledPatterns.REFACTOR, "Consider using Task with legacy-modernizer agent"),
-    ]
-
-    for pattern, suggestion in pattern_checks:
-        if pattern.search(text_content):
-            suggestions.append(suggestion)
-            # Only suggest one task agent at a time
-            break
-
-    return suggestions
+        
+        for pattern in dangerous_patterns:
+            if re.search(pattern, command, re.IGNORECASE):
+                return True
+        return False
+        
+    def detect_complex_task(self, prompt: str) -> Optional[str]:
+        """Detect if task should use specialized subagent"""
+        prompt_lower = prompt.lower()
+        
+        if self.patterns.security_pattern.search(prompt):
+            return "security-auditor"
+        elif self.patterns.performance_pattern.search(prompt):
+            return "performance-engineer"
+        elif self.patterns.debug_pattern.search(prompt):
+            return "debugger"
+        elif self.patterns.review_pattern.search(prompt):
+            return "code-reviewer"
+            
+        # Check for general complex search
+        if "find" in prompt_lower and ("all" in prompt_lower or "every" in prompt_lower):
+            return "general-purpose"
+            
+        return None
+        
+    def validate_operation(self, hook_event: str, tool_name: str, tool_input: Dict[str, Any]) -> Tuple[bool, List[str]]:
+        """Main validation logic"""
+        should_block = False
+        messages: List[str] = []
+        
+        # Track operation
+        self.session_state.add_operation(tool_name, tool_input)
+        
+        # Pre-operation checks
+        if hook_event == "PreToolUse":
+            # Check bash commands
+            if tool_name == "Bash" and self.config["enforce_modern_tools"]:
+                command = tool_input.get("command", "")
+                block, issues = self.check_bash_command(command)
+                if block and self.config["block_dangerous_operations"]:
+                    should_block = True
+                messages.extend(issues)
+                
+            # Check for Task tool usage
+            elif tool_name == "Task" and self.config["suggest_subagents"]:
+                prompt = tool_input.get("prompt", "")
+                if prompt.startswith("/"):
+                    messages.append("✅ Executing slash command - good practice!")
+                    
+        # Post-operation checks
+        elif hook_event == "PostToolUse":
+            # Check for batch opportunities
+            if self.config["suggest_batching"]:
+                batch_suggestion = self.session_state.detect_batch_opportunity()
+                if batch_suggestion:
+                    messages.append(f"💡 BATCH OPPORTUNITY: {batch_suggestion}")
+                    
+        # User message analysis
+        elif hook_event == "UserMessage" and self.config["detect_complex_tasks"]:
+            message = tool_input.get("message", "")
+            suggested_agent = self.detect_complex_task(message)
+            if suggested_agent:
+                messages.append(
+                    f"💡 COMPLEX TASK DETECTED! Consider using Task with subagent_type='{suggested_agent}' "
+                    f"for better results and to save context."
+                )
+                
+        return (should_block, messages)
 
 
-def write_state_to_file(state_data: Dict[str, Any]):
-    """Write state to shared file for inter-hook communication"""
-    state_file = "/tmp/claude_hook_state.json"
-    try:
-        with open(state_file, "w") as f:
-            json.dump(state_data, f)
-    except (OSError, ValueError):
-        pass  # Fail silently
-
-
-def read_state_from_file() -> Dict[str, Any]:
-    """Read shared state from file"""
-    state_file = "/tmp/claude_hook_state.json"
-    try:
-        if os.path.exists(state_file):
-            with open(state_file, "r") as f:
-                return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        pass
-    return {}
-
-
-def main():
-    """Main hook handler with performance optimizations"""
+def main() -> None:
+    """Main hook handler"""
     try:
         input_data = json.load(sys.stdin)
     except json.JSONDecodeError as e:
-        print(f"Error: Invalid JSON input: {e}", file=sys.stderr)
+        print(f"❌ HOOK ERROR: Invalid JSON input: {e}", file=sys.stderr)
         sys.exit(1)
-
+        
     hook_event = input_data.get("hook_event_name", "")
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
-
-    # Track tool usage
-    session_state.add_tool_use(tool_name, tool_input)
-
-    all_issues = []
-    should_block = False
-
-    if hook_event == "PreToolUse":
-        # Validate Bash commands
-        if tool_name == "Bash":
-            command = tool_input.get("command", "")
-            if command:
-                valid, issues = validate_bash_command_cached(command)
-                all_issues.extend(issues)
-                if not valid:
-                    should_block = True
-
-        # Check tool usage patterns
-        valid, tool_issues = check_tool_usage_optimized(tool_name, tool_input)
-        all_issues.extend(tool_issues)
-        if not valid:
-            should_block = True
-
-        # Check for complex tasks (skip if already using Task)
-        if tool_name != "Task":
-            complex_suggestions = check_complex_tasks_optimized(tool_input)
-            all_issues.extend(complex_suggestions)
-
-        # Write state for other hooks
-        state_data = {
-            "recent_tools": [(t[0], t[2]) for t in session_state.recent_tools[-10:]],
-            "file_access_count": dict(session_state.file_access_count),
-            "timestamp": time.time(),
-        }
-        write_state_to_file(state_data)
-
-        # Handle blocking
-        if should_block:
-            for issue in all_issues:
-                print(f"❌ {issue}", file=sys.stderr)
-            sys.exit(2)
-
-        # Provide feedback without blocking
-        if all_issues:
-            print("⚡ Performance Optimization Suggestions:", file=sys.stderr)
-            for issue in all_issues:
-                print(f"• {issue}", file=sys.stderr)
-            print("\nRefer to CLAUDE.md for more details.", file=sys.stderr)
-            sys.exit(2)
-
+    
+    enforcer = GuidelinesEnforcer()
+    should_block, messages = enforcer.validate_operation(hook_event, tool_name, tool_input)
+    
+    # Output messages
+    if messages:
+        print("=" * 60, file=sys.stderr)
+        print("📋 CLAUDE GUIDELINES CHECK", file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        for message in messages:
+            print(message, file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        
+    # Block only for dangerous operations
+    if should_block:
+        print("🛑 OPERATION BLOCKED FOR SAFETY! 🛑", file=sys.stderr)
+        sys.exit(2)
+        
     sys.exit(0)
 
 

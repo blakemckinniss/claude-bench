@@ -1,0 +1,40 @@
+# Claude cache and temporary files
+.claude/hooks/.mypy_cache/
+.claude/hooks/__pycache__/
+.claude/hooks/*/__pycache__/
+.claude/hooks/*/*/__pycache__/
+.claude/memory_system/__pycache__/
+.claude/memory_system/chroma/
+.claude/memory_system/db/
+.claude/logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp

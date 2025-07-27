@@ -1,0 +1,91 @@
+{
+  "memory_system": {
+    "enabled": true,
+    "version": "1.0.0",
+    "storage": {
+      "chroma_path": ".claude/memory_system/chroma",
+      "sqlite_path": ".claude/memory_system/db",
+      "max_memories_per_project": 10000
+    },
+    "search": {
+      "default_limit": 10,
+      "similarity_threshold": 0.7,
+      "enable_fuzzy_search": true
+    },
+    "memory_types": {
+      "code_pattern": {
+        "description": "Reusable code patterns and implementations",
+        "auto_extract": true,
+        "retention_days": null
+      },
+      "error_solution": {
+        "description": "Error patterns and their solutions",
+        "auto_extract": true,
+        "retention_days": 180
+      },
+      "project_context": {
+        "description": "Project-specific context and conventions",
+        "auto_extract": false,
+        "retention_days": null
+      },
+      "performance_insight": {
+        "description": "Performance observations and optimizations",
+        "auto_extract": true,
+        "retention_days": 90
+      },
+      "architectural_decision": {
+        "description": "Important architectural decisions and rationale",
+        "auto_extract": false,
+        "retention_days": null
+      },
+      "session_summary": {
+        "description": "Session summaries and key activities",
+        "auto_extract": true,
+        "retention_days": 30
+      },
+      "subagent_summary": {
+        "description": "Summaries from Task subagent executions",
+        "auto_extract": true,
+        "retention_days": 60
+      },
+      "subagent_discovery": {
+        "description": "Discoveries and insights from subagents",
+        "auto_extract": true,
+        "retention_days": null
+      },
+      "security_finding": {
+        "description": "Security vulnerabilities and fixes",
+        "auto_extract": true,
+        "retention_days": null
+      },
+      "code_quality": {
+        "description": "Code quality issues and recommendations",
+        "auto_extract": true,
+        "retention_days": 90
+      },
+      "compaction_preservation": {
+        "description": "Important memories preserved before compaction",
+        "auto_extract": true,
+        "retention_days": 7
+      }
+    },
+    "hooks": {
+      "auto_store": {
+        "enabled": true,
+        "triggers": [
+          "PostToolUse",
+          "UserPromptSubmit"
+        ],
+        "min_content_length": 50,
+        "excluded_tools": ["Read", "LS", "Bash"]
+      },
+      "auto_retrieve": {
+        "enabled": true,
+        "triggers": [
+          "UserPromptSubmit"
+        ],
+        "max_suggestions": 5
+      }
+    }
+  }
+}

@@ -12,7 +12,7 @@
 ```bash
 # NEVER use these:
 grep → rg       # 10-100x faster
-find → fd       # Simple & fast  
+find → fd       # Simple & fast
 cat → bat       # Syntax highlighting
 sed/awk → jq    # JSON processing
 ```
@@ -77,7 +77,7 @@ read_multiple_files(["file1.py", "file2.py", "file3.py"])
 # 4. Find cause
 
 # GOOD: Delegate
-Task(description="Debug error", 
+Task(description="Debug error",
      prompt="Debug NullPointerException in UserService",
      subagent_type="debugger")
 ```
@@ -119,6 +119,28 @@ Task(description="Debug error",
 - Parallelize independent tasks
 - Use specialized agents
 - Think in execution graphs, not sequences
+
+## 🔒 UNBREAKABLE LAWS
+
+### Communication Rules
+- **Answer concisely**: Maximum 4 lines unless user requests detail
+- **Minimize tokens**: Address only the specific query
+- **No preamble/postamble**: Skip explanations like "Here is..." or "Based on..."
+- **No emojis**: Unless explicitly requested
+
+### Security Rules
+- **No URL guessing**: Never generate URLs unless confident they help with programming
+
+### Code Rules
+- **No comments**: Unless explicitly requested
+- **Follow conventions**: Mimic existing code style, libraries, patterns
+- **Never assume libraries**: Check codebase before using any dependency
+- **No commits**: Unless explicitly requested
+
+### Behavior Rules
+- **Proactive only when asked**: Take action only when user requests it
+- **Understand first**: Check file conventions before making changes
+- **Emotionless & meticulous**: Be unbiased, skeptical, and precise in all analysis
 
 ---
 **Remember**: Optimize for action. Minimize deliberation. Execute with precision.

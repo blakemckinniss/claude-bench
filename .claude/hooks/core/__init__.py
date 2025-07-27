@@ -7,17 +7,17 @@ Contains fundamental components for the Claude Code hooks system:
 - context_enrichment: Intelligent context analysis and enhancement
 """
 
-from .shared_state import HookStateManager, SessionTracker, PerformanceMonitor
-from .pattern_detector import PatternDetector, WorkflowPattern, SmartSuggestions
-from .context_enrichment import ContextAnalyzer, IntelligentReminder
+from .context import ContextAnalyzer, IntelligentReminder
+from .pattern_detector import PatternDetector, SmartSuggestions, WorkflowPattern
+from .shared_state import HookStateManager, PerformanceMonitor, SessionTracker
 
 __all__ = [
-    "HookStateManager",
-    "SessionTracker",
-    "PerformanceMonitor",
-    "PatternDetector",
-    "WorkflowPattern",
-    "SmartSuggestions",
     "ContextAnalyzer",
+    "HookStateManager",
     "IntelligentReminder",
+    "PatternDetector",
+    "PerformanceMonitor",
+    "SessionTracker",
+    "SmartSuggestions",
+    "WorkflowPattern",
 ]

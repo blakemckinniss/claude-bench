@@ -1,333 +1,32 @@
 #!/usr/bin/env python3
 """
-Context-Aware Hook for Claude Code
-Uses conversation context to provide better suggestions
+Context Enrichment Hook Entry Point
+
+Clean executable entry point that uses the modular context system.
+Uses proper Python import handling and registry pattern for expandability.
 """
 
 import json
-import os
-import re
 import sys
 import time
-from typing import Any
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from pattern_detector import PatternDetector  # type: ignore[import-not-found]
-from shared_state import (  # type: ignore[import-not-found]
-    HookStateManager,
-    SessionTracker,
-)
+from pathlib import Path
+from typing import Any, cast
 
 
-class ContextAnalyzer:
-    """Analyzes conversation context for better suggestions"""
+def setup_python_path() -> None:
+    """Setup Python path to enable proper imports."""
+    current_dir = Path(__file__).parent
+    context_dir = current_dir / "context"
 
-    def __init__(self) -> None:
-        self.state_manager = HookStateManager()
-        self.pattern_detector = PatternDetector()
-        self.session_tracker = SessionTracker()
-
-    def analyze_prompt_context(self, prompt: str) -> dict[str, Any]:
-        """Analyze user prompt for context clues"""
-        suggested_tools: list[tuple[str, str]] = []
-        suggested_agents: list[tuple[str, str]] = []
-
-        context: dict[str, Any] = {
-            "intent": self._detect_intent(prompt),
-            "scope": self._detect_scope(prompt),
-            "urgency": self._detect_urgency(prompt),
-            "keywords": self._extract_keywords(prompt),
-            "suggested_tools": suggested_tools,
-            "suggested_agents": suggested_agents,
-        }
-
-        # Suggest tools based on intent
-        if context["intent"] == "mcp_query":
-            context["suggested_tools"].append(
-                (
-                    "ListMcpResourcesTool",
-                    "Use to list available MCP servers and resources",
-                )
-            )
-        elif context["intent"] == "search":
-            if context["scope"] == "extensive":
-                context["suggested_agents"].append(
-                    (
-                        "general-purpose",
-                        "Use Task for extensive searches to save context",
-                    )
-                )
-            else:
-                context["suggested_tools"].append(
-                    (
-                        "search_for_pattern",
-                        "Use with context lines for efficient searching",
-                    )
-                )
-
-        elif context["intent"] == "debug":
-            context["suggested_agents"].append(
-                (
-                    "debugger",
-                    'Consider Task(subagent_type="debugger") for complex debugging',
-                )
-            )
-
-        elif context["intent"] == "optimize":
-            context["suggested_agents"].append(
-                (
-                    "performance-engineer",
-                    'Use Task(subagent_type="performance-engineer") for optimization',
-                )
-            )
-
-        return context
-
-    def _detect_intent(self, prompt: str) -> str:
-        """Detect primary intent from prompt"""
-        prompt_lower = prompt.lower()
-
-        intent_patterns = [
-            (r"\b(mcp|mcp server|servers.*access|what.*servers)\b", "mcp_query"),
-            (r"\b(find|search|locate|look for)\b", "search"),
-            (r"\b(debug|fix|error|bug|issue)\b", "debug"),
-            (r"\b(optimize|improve|speed up|performance)\b", "optimize"),
-            (r"\b(review|audit|check|analyze)\b", "review"),
-            (r"\b(refactor|modernize|clean up)\b", "refactor"),
-            (r"\b(test|coverage|unit test)\b", "test"),
-            (r"\b(implement|add|create|build)\b", "implement"),
-        ]
-
-        for pattern, intent in intent_patterns:
-            if re.search(pattern, prompt_lower):
-                return intent
-
-        return "general"
-
-    def _detect_scope(self, prompt: str) -> str:
-        """Detect scope of the task"""
-        prompt_lower = prompt.lower()
-
-        if any(
-            word in prompt_lower
-            for word in ["all", "every", "entire", "whole", "throughout"]
-        ):
-            return "extensive"
-        elif any(
-            word in prompt_lower
-            for word in ["specific", "particular", "single", "just"]
-        ):
-            return "targeted"
-        else:
-            return "moderate"
-
-    def _detect_urgency(self, prompt: str) -> str:
-        """Detect urgency level"""
-        prompt_lower = prompt.lower()
-
-        if any(word in prompt_lower for word in ["asap", "urgent", "quickly", "fast"]):
-            return "high"
-        elif any(
-            word in prompt_lower for word in ["when you can", "eventually", "later"]
-        ):
-            return "low"
-        else:
-            return "normal"
-
-    def _extract_keywords(self, prompt: str) -> list[str]:
-        """Extract important keywords"""
-        # Remove common words
-        stop_words = {
-            "the",
-            "a",
-            "an",
-            "and",
-            "or",
-            "but",
-            "in",
-            "on",
-            "at",
-            "to",
-            "for",
-        }
-        words = re.findall(r"\b\w+\b", prompt.lower())
-        keywords = [w for w in words if w not in stop_words and len(w) > 2]
-
-        # Prioritize technical terms
-        tech_terms = [w for w in keywords if re.match(r".*\.(py|js|ts|java|cpp|go)", w)]
-        return tech_terms[:5] + [w for w in keywords if w not in tech_terms][:5]
-
-    def get_contextual_suggestions(
-        self, tool_name: str, tool_input: dict[str, Any]
-    ) -> list[str]:
-        """Get suggestions based on context and history"""
-        suggestions = []
-
-        # Get recent operations
-        recent_ops = self.session_tracker.get_recent_operations(seconds=60)
-
-        # Check for patterns
-        if tool_name == "Read":
-            # Count recent reads
-            recent_reads = [op for op in recent_ops if op["tool"] == "Read"]
-            if len(recent_reads) >= 2:
-                files = [op.get("file_path", "unknown") for op in recent_reads[-3:]]
-                suggestions.append(
-                    f"📚 You've read {len(recent_reads)} files recently. "
-                    f"Consider batching with read_multiple_files: {files}"
-                )
-
-        elif tool_name == "Bash":
-            command = tool_input.get("command", "")
-            # Check for inefficient commands in context
-            if "grep" in command:
-                recent_greps = [
-                    op
-                    for op in recent_ops
-                    if op["tool"] == "Bash" and "grep" in op.get("command", "")
-                ]
-                if len(recent_greps) >= 2:
-                    suggestions.append(
-                        "🔍 Multiple grep commands detected. Switch to 'rg' (ripgrep) "
-                        "for 10-100x performance improvement!"
-                    )
-
-        elif tool_name == "find_symbol":
-            # Check if symbols are related
-            recent_symbols = [op for op in recent_ops if op["tool"] == "find_symbol"]
-            if len(recent_symbols) >= 3:
-                suggestions.append(
-                    "🎯 Multiple symbol searches detected. Send them in parallel "
-                    "or use get_symbols_overview for a broader view first."
-                )
-
-        # Get workflow-based suggestions
-        workflows = self.pattern_detector.detect_workflows()
-        for workflow in workflows:
-            suggestions.append(f"🔄 {workflow.optimization_suggestion}")
-
-        return suggestions
-
-
-class IntelligentReminder:
-    """Provides intelligent, context-aware reminders"""
-
-    def __init__(self) -> None:
-        self.context_analyzer = ContextAnalyzer()
-
-    def generate_reminders(self, prompt: str, context: dict[str, Any]) -> list[str]:
-        """Generate smart reminders based on prompt and context"""
-        reminders = []
-
-        # Base reminders on intent
-        if context["intent"] == "mcp_query":
-            reminders.append(
-                "🔌 MCP servers: Use ListMcpResourcesTool to see all available "
-                "MCP servers"
-            )
-        elif context["intent"] == "search":
-            reminders.append(
-                "🔍 Search tips: Use 'rg' for text, 'fd' for files, "
-                "Task for extensive searches"
-            )
-        elif context["intent"] == "debug":
-            reminders.append(
-                "🐛 Debug efficiently: Task(subagent_type='debugger') "
-                "handles complex issues"
-            )
-        elif context["intent"] == "optimize":
-            reminders.append(
-                "⚡ Always measure first! "
-                "Use Task(subagent_type='performance-engineer')"
-            )
-
-        # Scope-based reminders
-        if context["scope"] == "extensive":
-            reminders.append(
-                "🌍 Extensive operations: Delegate to Task subagents to save context"
-            )
-        elif context["scope"] == "targeted":
-            reminders.append(
-                "🎯 For specific targets: Use Serena's symbolic navigation for code"
-            )
-
-        # Add urgency-based advice
-        if context["urgency"] == "high":
-            reminders.append(
-                "🚀 For speed: Batch operations, use parallel execution, "
-                "delegate to subagents"
-            )
-
-        # Pattern-based reminders
-        patterns = self.context_analyzer.pattern_detector.detect_workflows()
-        if patterns:
-            reminders.append(
-                f"📊 Detected {patterns[0].type.value} pattern - "
-                "optimize this workflow!"
-            )
-
-        return reminders
-
-
-def _get_relevant_mcp_tools(context: dict[str, Any]) -> str:
-    """Get the 3 most relevant MCP tools based on context"""
-    intent = context.get("intent", "general")
-
-    # Map intents to relevant MCP tools
-    mcp_tool_suggestions = {
-        "mcp_query": [
-            "• mcp__zen__chat (use_websearch=true) - Consult Zen with web search",
-            "• mcp__ListMcpResourcesTool - List all available MCP servers",
-            "• mcp__ReadMcpResourceTool - Read specific MCP resources",
-        ],
-        "search": [
-            "• mcp__zen__chat (use_websearch=true) - Zen analyzes search strategy",
-            "• mcp__serena__search_for_pattern - Search code patterns",
-            "• mcp__filesystem__search_files - Search files by name",
-        ],
-        "debug": [
-            "• mcp__zen__debug - Zen manages debug investigation",
-            "• mcp__serena__find_symbol - Find code symbols",
-            "• mcp__ide__getDiagnostics - Get language diagnostics",
-        ],
-        "optimize": [
-            "• mcp__zen__analyze - Zen analyzes optimization needs",
-            "• mcp__ruv-swarm__benchmark_run - Run performance benchmarks",
-            "• mcp__zen__refactor - Zen-guided refactoring",
-        ],
-        "review": [
-            "• mcp__zen__codereview - Zen-managed code review",
-            "• mcp__zen__secaudit - Zen security audit",
-            "• mcp__github__get_pull_request_diff - Review PR changes",
-        ],
-        "refactor": [
-            "• mcp__zen__refactor - Zen plans refactoring strategy",
-            "• mcp__serena__replace_symbol_body - Replace code symbols",
-            "• mcp__filesystem__move_file - Reorganize files",
-        ],
-        "test": [
-            "• mcp__zen__testgen - Zen designs test strategy",
-            "• mcp__playwright__browser_snapshot - Browser testing",
-            "• mcp__ide__executeCode - Execute test code",
-        ],
-        "implement": [
-            "• mcp__zen__chat (use_websearch=true) - Zen plans implementation",
-            "• mcp__serena__insert_after_symbol - Add new code",
-            "• mcp__filesystem__write_file - Create new files",
-        ],
-        "general": [
-            "• mcp__zen__chat (use_websearch=true) - Zen as project manager",
-            "• mcp__serena__get_symbols_overview - Understand code structure",
-            "• mcp__filesystem__directory_tree - Explore project structure",
-        ],
-    }
-
-    tools = mcp_tool_suggestions.get(intent, mcp_tool_suggestions["general"])
-    return "\n".join(tools)
+    for path_dir in [str(current_dir), str(context_dir)]:
+        if path_dir not in sys.path:
+            sys.path.insert(0, path_dir)
 
 
 def main() -> None:
-    """Main hook handler with context awareness"""
+    """Hook entry point that coordinates modular context enrichment."""
+    setup_python_path()
+
     try:
         input_data = json.load(sys.stdin)
     except json.JSONDecodeError as e:
@@ -337,61 +36,85 @@ def main() -> None:
     hook_event = input_data.get("hook_event_name", "")
 
     if hook_event == "UserPromptSubmit":
-        prompt = input_data.get("prompt", "")
+        result = handle_user_prompt_submit(input_data)
+        if result["status"] == "success":
+            print(result["enhanced_context"])
+        sys.exit(0)
 
-        # Check if this is a trivial request that should skip enhancement
-        trivial_patterns = [
-            r"^(yes|no|ok|okay|sure|alright|fine|got it|understood)\.?$",
-            r"^(please do|do it|go ahead|proceed|continue|thanks|thank you)\.?$",
-            r"^(yep|yeah|nope|nah|cool|great|good|perfect|exactly)\.?$",
-            r"^(right|correct|indeed|absolutely)\.?$",
-            r"^\d+\s*[\+\-\*/]\s*\d+\s*\??$",  # Simple math like "2 + 2?"
-            r"^what is \d+\s*[\+\-\*/]\s*\d+\s*\??$",  # Simple math questions
-        ]
+    elif hook_event == "PreToolUse":
+        result = handle_pre_tool_use(input_data)
+        if result["status"] == "success":
+            print(result["formatted_output"])
+            print(json.dumps({"suppressOutput": False}))
+        sys.exit(0)
 
-        prompt_lower = prompt.lower().strip()
-        is_trivial = any(
-            re.match(pattern, prompt_lower) for pattern in trivial_patterns
-        )
+    sys.exit(0)
 
-        # Skip enhancement for trivial requests
-        if is_trivial:
-            sys.exit(0)
+
+def handle_user_prompt_submit(input_data: dict[str, Any]) -> dict[str, Any]:
+    """Handle UserPromptSubmit hook events with context enhancement."""
+    prompt = input_data.get("prompt", "")
+
+    if not prompt:
+        return {"status": "ignored", "reason": "Empty prompt"}
+
+    try:
+        # Import context modules with error handling
+        try:
+            from context.analyzer import (
+                ContextAnalyzer,  # type: ignore[import-not-found]
+            )
+            from context.reminders import (
+                IntelligentReminder,  # type: ignore[import-not-found]
+            )
+            from context.tools import (
+                get_relevant_mcp_tools,  # type: ignore[import-not-found]
+            )
+        except ImportError as e:
+            print(f"Warning: Context modules not available: {e}", file=sys.stderr)
+            return {"status": "error", "reason": f"Import error: {e}"}
+
+        # Initialize components
+        analyzer = ContextAnalyzer()
+        reminder_gen = IntelligentReminder()
+
+        # Check if this is a trivial request
+        if analyzer.is_trivial_request(prompt):
+            return {"status": "ignored", "reason": "Trivial request"}
 
         # Analyze context
-        analyzer = ContextAnalyzer()
-        context = analyzer.analyze_prompt_context(prompt)
+        context = cast(dict[str, Any], analyzer.analyze_prompt_context(prompt))
 
         # Generate intelligent reminders
-        reminder_gen = IntelligentReminder()
         reminders = reminder_gen.generate_reminders(prompt, context)
 
         # Build context enhancements
         output_parts = []
 
         # Add context-aware enhancements
-        if context["suggested_agents"]:
+        if context.get("suggested_agents"):
             agent_suggestions = "🤖 Suggested agents: " + ", ".join(
-                f"{agent[0]}" for agent in context["suggested_agents"][:2]
+                str(agent[0]) for agent in context["suggested_agents"][:2]
             )
             output_parts.append(agent_suggestions)
 
         # Add reminders if relevant
-        if reminders:
-            reminder_text = "💡 Context-aware tips:\n" + "\n".join(reminders[:3])
-            output_parts.append(reminder_text)
+        if reminders and reminder_gen.should_show_reminders(context):
+            formatted_reminders = reminder_gen.format_reminders_for_output(reminders)
+            if formatted_reminders:
+                output_parts.append(formatted_reminders)
 
-        # Build the additional context
+        # Build enhanced context
         if output_parts:
             enhanced_context = "\n".join(output_parts)
             context_tips = f"Think deeply: {enhanced_context}\n\n"
         else:
             context_tips = ""
 
-        # Get relevant MCP tools based on context
-        relevant_mcp_tools = _get_relevant_mcp_tools(context)
+        # Get relevant MCP tools
+        relevant_mcp_tools = get_relevant_mcp_tools(context)
 
-        # Build the comprehensive additional context with all required statements
+        # Build comprehensive context
         additional_context = f"""{context_tips}PROJECT MANAGEMENT APPROACH:
 
 🧠 ZEN is your co-pilot project manager. Consult FIRST for:
@@ -412,41 +135,104 @@ def main() -> None:
 🎯 RECOMMENDED TOOLS:
 {relevant_mcp_tools}"""
 
-        # For UserPromptSubmit, simply print to stdout with exit code 0
-        # This makes the output visible to Claude as additional context
-        print(additional_context)
-        sys.exit(0)
+        return {
+            "status": "success",
+            "enhanced_context": additional_context,
+            "context_analysis": context,
+            "reminders_count": len(reminders),
+        }
 
-    elif hook_event == "PreToolUse":
-        tool_name = input_data.get("tool_name", "")
-        tool_input = input_data.get("tool_input", {})
+    except Exception as e:
+        print(f"Error in context enrichment: {e}", file=sys.stderr)
+        return {"status": "error", "reason": str(e)}
+
+
+def handle_pre_tool_use(input_data: dict[str, Any]) -> dict[str, Any]:
+    """Handle PreToolUse hook events with contextual suggestions."""
+    tool_name = input_data.get("tool_name", "")
+    tool_input = input_data.get("tool_input", {})
+
+    if not tool_name:
+        return {"status": "ignored", "reason": "No tool name"}
+
+    try:
+        # Import context modules with error handling
+        try:
+            from context.analyzer import ContextAnalyzer
+        except ImportError as e:
+            print(f"Warning: Context analyzer not available: {e}", file=sys.stderr)
+            return {"status": "error", "reason": f"Import error: {e}"}
+
+        # Initialize analyzer
+        analyzer = ContextAnalyzer()
 
         # Track for pattern detection
-        analyzer = ContextAnalyzer()
-        analyzer.pattern_detector.add_operation(
-            tool_name, tool_input, input_data.get("timestamp", time.time())
-        )
-        analyzer.session_tracker.add_tool_execution(tool_name, tool_input)
+        if analyzer.pattern_detector:
+            analyzer.pattern_detector.add_operation(
+                tool_name, tool_input, input_data.get("timestamp", time.time())
+            )
+
+        if analyzer.session_tracker:
+            analyzer.session_tracker.add_tool_execution(tool_name, tool_input)
 
         # Get contextual suggestions
         suggestions = analyzer.get_contextual_suggestions(tool_name, tool_input)
 
-        if suggestions:
-            # For PreToolUse with suggestions (non-blocking)
-            # We'll use simple output that shows only in transcript mode
-            suggestion_text = "🧠 Context-Aware Suggestions:\n" + "\n".join(
-                f"• {s}" for s in suggestions
-            )
+        if not suggestions:
+            return {"status": "ignored", "reason": "No suggestions available"}
 
-            # Use JSON output for clean control
-            output = {"suppressOutput": False}  # Show in transcript mode
+        # Format suggestions
+        suggestion_text = "🧠 Context-Aware Suggestions:\n" + "\n".join(
+            f"• {s}" for s in suggestions
+        )
 
-            # Print suggestions to stdout (visible in transcript mode)
-            print(suggestion_text)
-            print(json.dumps(output))
+        return {
+            "status": "success",
+            "suggestions": suggestions,
+            "formatted_output": suggestion_text,
+            "suppress_output": False,
+        }
 
-        # Exit code 0 - continue normally
-        sys.exit(0)
+    except Exception as e:
+        print(f"Error in pre-tool use handler: {e}", file=sys.stderr)
+        return {"status": "error", "reason": str(e)}
+
+
+# Standalone API functions for programmatic usage
+def analyze_context(prompt: str) -> dict[str, Any]:
+    """Standalone function to analyze context without hook infrastructure."""
+    setup_python_path()
+
+    try:
+        from context.analyzer import ContextAnalyzer
+
+        analyzer = ContextAnalyzer()
+        result = analyzer.analyze_prompt_context(prompt)
+        return cast(dict[str, Any], result)
+    except Exception:
+        return {
+            "intent": "general",
+            "scope": "moderate",
+            "urgency": "normal",
+            "keywords": [],
+            "suggested_tools": [],
+            "suggested_agents": [],
+            "confidence": 0.0,
+        }
+
+
+def get_suggestions_for_tool(tool_name: str, tool_input: dict[str, Any]) -> list[str]:
+    """Standalone function to get tool suggestions without hook infrastructure."""
+    setup_python_path()
+
+    try:
+        from context.analyzer import ContextAnalyzer  # type: ignore[import-not-found]
+
+        analyzer = ContextAnalyzer()
+        result = analyzer.get_contextual_suggestions(tool_name, tool_input)
+        return cast(list[str], result)
+    except Exception:
+        return []
 
 
 if __name__ == "__main__":
